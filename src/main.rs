@@ -175,12 +175,11 @@ impl Client {
                 if self.available < amount {
                     // not sure what to do here, the person has already taken the money out of the account
                     // the most logical seem to lock the account
-                    eprintln!("Client {} already took the money out", self.id);
-                    eprintln!("this shouldn't be possible")
-                } else {
-                    self.available -= amount;
-                    self.held += amount;
+                    eprintln!("Client {} could be a thief", self.id);
+                    eprintln!("balance going negative")
                 }
+                self.available -= amount;
+                self.held += amount;
             }
             TransactionType::Withdrawal => {
                 let amount = transaction.amount.unwrap();
@@ -204,12 +203,10 @@ impl Client {
                     // not sure what to do here, the person has already taken the money out of the account
                     // the most logical seem to lock the account
                     // this shouldn't be possible though
-                    eprintln!("Client {} already took the money out", self.id);
-                    eprintln!("this shouldn't be possible")
-                } else {
-                    self.held -= amount;
-                    self.available += amount;
+                    eprintln!("Client {} could be a thief, balance going negative", self.id);
                 }
+                self.held -= amount;
+                self.available += amount;
             }
             TransactionType::Withdrawal => {
                 let amount = transaction.amount.unwrap();
@@ -217,12 +214,10 @@ impl Client {
                     // not sure what to do here, the person has already taken the money out of the account
                     // the most logical seem to lock the account
                     // this shouldn't be possible though
-                    eprintln!("Client {} already took the money out", self.id);
-                    eprintln!("this shouldn't be possible")
-                } else {
-                    self.held -= amount;
-                    self.total -= amount;
+                    eprintln!("Client {} could be a thief, balance going negative", self.id);
                 }
+                self.held -= amount;
+                self.total -= amount;
             }
             _ => {
                 eprintln!(
@@ -321,6 +316,24 @@ mod tests {
                 held: Decimal::ZERO,
                 total: Decimal::ZERO,
                 locked: false,
+            },
+        );
+    }
+    
+    #[tokio::test]
+    async fn thief() {
+        let parsed = parse_transactions("./data/thief.csv")
+            .await
+            .expect("failed parsing example input");
+        let parsed_client_1 = parsed.get(&1).unwrap();
+        assert_eq!(
+            parsed_client_1,
+            &Client {
+                id: 1,
+                available: Decimal::from_str("-1").unwrap(),
+                held: Decimal::from_str("1").unwrap(),
+                total: Decimal::ZERO,
+                locked: true,
             },
         );
     }
