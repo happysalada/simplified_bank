@@ -1,0 +1,7 @@
+type,client,tx,amount 
+deposit,1,1,1.0 
+deposit,2,2,2.0 
+garbage,just,pure,garbage 
+simple,garbage
+withdrawal,1,4,1.5 
+withdrawal,2,5,3.0
