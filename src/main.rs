@@ -2,13 +2,13 @@ use anyhow::{bail, Context, Result};
 use csv_async::{AsyncDeserializer, AsyncReaderBuilder, AsyncSerializer, Trim};
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::env;
 use tokio::fs::File;
 use tokio::io;
 use tokio_stream::StreamExt;
 
-async fn parse_transactions(input_file: &str) -> Result<HashMap<u16, Client>> {
+async fn parse_transactions(input_file: &str) -> Result<BTreeMap<u16, Client>> {
     let mut reader = AsyncReaderBuilder::new()
         .trim(Trim::All)
         .create_deserializer(File::open(&input_file).await.with_context(|| {
@@ -16,7 +16,7 @@ async fn parse_transactions(input_file: &str) -> Result<HashMap<u16, Client>> {
         })?);
     // keeping transactions and clients in memory while streaming the file doesn't make sense here
     // This is where using sqlite would come in handy
-    let mut clients: HashMap<u16, Client> = HashMap::new();
+    let mut clients: BTreeMap<u16, Client> = BTreeMap::new();
     let mut transactions: HashMap<u32, TransactionRecord> = HashMap::new();
     // I'm assuming that the number of disputed transactions is quite low
     // so this allocation shouldn't be an issue
@@ -37,7 +37,7 @@ async fn parse_transactions(input_file: &str) -> Result<HashMap<u16, Client>> {
 }
 
 fn process_transaction(
-    clients: &mut HashMap<u16, Client>,
+    clients: &mut BTreeMap<u16, Client>,
     transactions: &mut HashMap<u32, TransactionRecord>,
     disputed: &mut HashMap<u32, TransactionRecord>,
     record: TransactionRecord,
@@ -136,7 +136,7 @@ enum TransactionType {
     Chargeback,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, PartialEq)]
 struct Client {
     id: u16,
     available: Decimal,
@@ -234,5 +234,40 @@ impl Client {
     }
     fn chargeback(&mut self) {
         self.locked = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use core::str::FromStr;
+
+    #[tokio::test]
+    async fn example_input() {
+        let parsed = parse_transactions("./data/example_input.csv")
+            .await
+            .expect("failed parsing example input");
+        let parsed_client_1 = parsed.get(&1).unwrap();
+        assert_eq!(
+            parsed_client_1,
+            &Client {
+                id: 1,
+                available: Decimal::from_str("1.5").unwrap(),
+                held: Decimal::ZERO,
+                total: Decimal::from_str("1.5").unwrap(),
+                locked: false,
+            },
+        );
+        let parsed_client_2 = parsed.get(&2).unwrap();
+        assert_eq!(
+            parsed_client_2,
+            &Client {
+                id: 2,
+                available: Decimal::from_str("2").unwrap(),
+                held: Decimal::ZERO,
+                total: Decimal::from_str("2").unwrap(),
+                locked: false,
+            },
+        );
     }
 }
