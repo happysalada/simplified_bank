@@ -27,7 +27,7 @@ async fn parse_transactions(input_file: &str) -> Result<HashMap<u16, Client>> {
         if let Ok(record) = record {
             process_transaction(&mut clients, &mut transactions, &mut disputed, record);
         } else {
-            println!(
+            eprintln!(
                 "failed to parse into record, ignoring transaction, received input {:?}",
                 record
             );
@@ -60,28 +60,37 @@ fn process_transaction(
         &TransactionType::Dispute => {
             if let Some(transaction) = transactions.get(&record.transaction_id) {
                 if transaction.client_id == record.client_id {
-                   (*client).dispute(&transaction);
-                   disputed.insert(transaction.transaction_id, (*transaction).clone());
+                    (*client).dispute(&transaction);
+                    disputed.insert(transaction.transaction_id, (*transaction).clone());
                 } else {
-                    println!("dispute on transaction {} contains a different client_id", &record.transaction_id)
+                    eprintln!(
+                        "dispute on transaction {} contains a different client_id",
+                        &record.transaction_id
+                    )
                 }
             }
         }
         &TransactionType::Resolve => {
             if let Some(transaction) = disputed.remove(&record.transaction_id) {
                 if transaction.client_id == record.client_id {
-                   (*client).resolve(&transaction);
+                    (*client).resolve(&transaction);
                 } else {
-                    println!("resolve on transaction {} contains a different client_id", &record.transaction_id)
+                    eprintln!(
+                        "resolve on transaction {} contains a different client_id",
+                        &record.transaction_id
+                    )
                 }
             }
         }
         &TransactionType::Chargeback => {
             if let Some(transaction) = disputed.remove(&record.transaction_id) {
                 if transaction.client_id == record.client_id {
-                   (*client).chargeback();
+                    (*client).chargeback();
                 } else {
-                    println!("chargeback on transaction {} contains a different client_id", &record.transaction_id)
+                    eprintln!(
+                        "chargeback on transaction {} contains a different client_id",
+                        &record.transaction_id
+                    )
                 }
             }
         }
@@ -166,8 +175,8 @@ impl Client {
                 if self.available < amount {
                     // not sure what to do here, the person has already taken the money out of the account
                     // the most logical seem to lock the account
-                    println!("Client {} already took the money out", self.id);
-                    println!("this shouldn't be possible")
+                    eprintln!("Client {} already took the money out", self.id);
+                    eprintln!("this shouldn't be possible")
                 } else {
                     self.available -= amount;
                     self.held += amount;
@@ -179,7 +188,7 @@ impl Client {
                 self.total += amount;
             }
             _ => {
-                println!(
+                eprintln!(
                     "disputing type {:?} hasn't been implemented",
                     transaction.transaction_type
                 );
@@ -195,8 +204,8 @@ impl Client {
                     // not sure what to do here, the person has already taken the money out of the account
                     // the most logical seem to lock the account
                     // this shouldn't be possible though
-                    println!("Client {} already took the money out", self.id);
-                    println!("this shouldn't be possible")
+                    eprintln!("Client {} already took the money out", self.id);
+                    eprintln!("this shouldn't be possible")
                 } else {
                     self.held -= amount;
                     self.available += amount;
@@ -208,15 +217,15 @@ impl Client {
                     // not sure what to do here, the person has already taken the money out of the account
                     // the most logical seem to lock the account
                     // this shouldn't be possible though
-                    println!("Client {} already took the money out", self.id);
-                    println!("this shouldn't be possible")
+                    eprintln!("Client {} already took the money out", self.id);
+                    eprintln!("this shouldn't be possible")
                 } else {
                     self.held -= amount;
                     self.total -= amount;
                 }
             }
             _ => {
-                println!(
+                eprintln!(
                     "resolving type {:?} hasn't been implemented",
                     transaction.transaction_type
                 );
