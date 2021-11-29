@@ -162,7 +162,7 @@ impl Client {
     }
 
     fn withdraw(&mut self, amount: &Decimal) {
-        if &self.available >= amount {
+        if &self.available >= amount && !self.locked {
             self.available -= amount;
             self.total -= amount;
         }
@@ -333,6 +333,43 @@ mod tests {
                 available: Decimal::from_str("-1").unwrap(),
                 held: Decimal::from_str("1").unwrap(),
                 total: Decimal::ZERO,
+                locked: true,
+            },
+        );
+    }
+    
+    
+    #[tokio::test]
+    async fn locked_account_should_be_able_to_deposit() {
+        let parsed = parse_transactions("./data/locked_account_deposit.csv")
+            .await
+            .expect("failed parsing example input");
+        let parsed_client_1 = parsed.get(&1).unwrap();
+        assert_eq!(
+            parsed_client_1,
+            &Client {
+                id: 1,
+                available: Decimal::ZERO,
+                held: Decimal::from_str("1").unwrap(),
+                total: Decimal::from_str("1").unwrap(),
+                locked: true,
+            },
+        );
+    }
+    
+    #[tokio::test]
+    async fn locked_account_cant_withdraw() {
+        let parsed = parse_transactions("./data/locked_account_withdrawal.csv")
+            .await
+            .expect("failed parsing example input");
+        let parsed_client_1 = parsed.get(&1).unwrap();
+        assert_eq!(
+            parsed_client_1,
+            &Client {
+                id: 1,
+                available: Decimal::from_str("1").unwrap(),
+                held: Decimal::from_str("1").unwrap(),
+                total: Decimal::from_str("2").unwrap(),
                 locked: true,
             },
         );
