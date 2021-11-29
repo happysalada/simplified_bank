@@ -270,4 +270,58 @@ mod tests {
             },
         );
     }
+
+    #[tokio::test]
+    async fn dispute_deposit_with_resolution() {
+        let parsed = parse_transactions("./data/dispute_deposit_with_resolution.csv")
+            .await
+            .expect("failed parsing example input");
+        let parsed_client_1 = parsed.get(&1).unwrap();
+        assert_eq!(
+            parsed_client_1,
+            &Client {
+                id: 1,
+                available: Decimal::from_str("1").unwrap(),
+                held: Decimal::ZERO,
+                total: Decimal::from_str("1").unwrap(),
+                locked: false,
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn dispute_deposit_with_chargeback() {
+        let parsed = parse_transactions("./data/dispute_deposit_with_chargeback.csv")
+            .await
+            .expect("failed parsing example input");
+        let parsed_client_1 = parsed.get(&1).unwrap();
+        assert_eq!(
+            parsed_client_1,
+            &Client {
+                id: 1,
+                available: Decimal::ZERO,
+                held: Decimal::from_str("1").unwrap(),
+                total: Decimal::from_str("1").unwrap(),
+                locked: true,
+            },
+        );
+    }
+
+    #[tokio::test]
+    async fn dispute_withdrawal_with_resolution() {
+        let parsed = parse_transactions("./data/dispute_withdrawal_with_resolution.csv")
+            .await
+            .expect("failed parsing example input");
+        let parsed_client_1 = parsed.get(&1).unwrap();
+        assert_eq!(
+            parsed_client_1,
+            &Client {
+                id: 1,
+                available: Decimal::ZERO,
+                held: Decimal::ZERO,
+                total: Decimal::ZERO,
+                locked: false,
+            },
+        );
+    }
 }
