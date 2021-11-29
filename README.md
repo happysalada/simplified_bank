@@ -35,3 +35,11 @@ Those are relatively unstructered.
 - A dispute should be a struct with just a transaction id (if the client isn't part of the original transaction then the dispute should be ignored ?)
 - My implementation doesn't work properly with disputes not having a trailing "," (and withdrawals)
 - This should definitely have automated testing, I tested by hand for lack of time 
+
+## Second implementation
+
+- The locked state should be encoded in the type system, but getting that to work was time-consuming
+- The transaction state should be a state machine where the type system "checks" transitions.
+- I originally used BTreeMap to encode temporality in the transactions, but never got to implement a vector clock
+- The second implementation is a little worse on resource consumption, however the types makes things clearer.
+- The input types should be type checked better, but it seems that would require a custom deserializer, so didn't go for it.
