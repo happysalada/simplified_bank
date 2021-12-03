@@ -249,7 +249,7 @@ impl Bank {
             .or_insert_with(|| Account::default());
         // let next_clock = self.next_clock;
         // self.next_clock += 1;
-        (*account).process(record);
+        account.process(record);
     }
 }
 
