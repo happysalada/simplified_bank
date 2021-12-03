@@ -1,3 +1,5 @@
+use crate::RecordedTransaction::*;
+use crate::TransactionType::*;
 use anyhow::{bail, Context, Result};
 use csv_async::{AsyncDeserializer, AsyncReaderBuilder, AsyncSerializer, Trim};
 use rust_decimal::Decimal;
@@ -7,18 +9,13 @@ use std::env;
 use tokio::fs::File;
 use tokio::io;
 use tokio_stream::StreamExt;
-use crate::TransactionType::*;
-use crate::RecordedTransaction::*;
-use crate::MaybeDispute::*;
-use crate::MaybeResolve::*;
-use crate::MaybeChargeBack::*;
 
 #[derive(Debug)]
 struct Account {
     available: Decimal,
     held: Decimal,
     transactions: BTreeMap<u32, RecordedTransaction>,
-    locked: bool
+    locked: bool,
 }
 
 impl Default for Account {
@@ -39,84 +36,105 @@ impl Account {
             available: self.available,
             held: self.held,
             total: self.available + self.held,
-            locked: self.locked
+            locked: self.locked,
         }
     }
-    
+
     fn deposit(&mut self, (transaction_id, amount): (u32, Decimal)) {
         // in reality this would probably be a db transaction where both operations have to succeed together
         self.available += amount;
-        self.transactions.insert(transaction_id, Validated(Transaction::Deposit(transaction_id, amount)));
+        self.transactions.insert(
+            transaction_id,
+            Validated(Transaction::Deposit(transaction_id, amount)),
+        );
     }
-    
+
     fn withdraw(&mut self, (transaction_id, amount): (u32, Decimal)) {
         let transaction = Transaction::Withdrawal(transaction_id, amount);
         if self.locked || self.available < amount {
-            self.transactions.insert(transaction_id, Rejected(transaction));
+            self.transactions
+                .insert(transaction_id, Rejected(transaction));
         } else {
             self.available -= amount;
-            self.transactions.insert(transaction_id, Validated(transaction));
+            self.transactions
+                .insert(transaction_id, Validated(transaction));
         }
     }
-    
+
     fn dispute(&mut self, transaction_id: u32) {
         if let Some(transaction) = self.transactions.get_mut(&transaction_id) {
             match transaction.dispute() {
-                DepositDispute(amount) => {
-                    self.available -= amount;        
-                    self.held += amount;
-                },
-                WithdrawalDispute(amount) => {
+                Some(Dispute::Deposit { amount }) => {
+                    self.available -= amount;
                     self.held += amount;
                 }
-                _ => ()
+                Some(Dispute::Withdrawal { amount }) => {
+                    self.held += amount;
+                }
+                _ => (),
             }
         }
     }
-    
+
     fn resolve(&mut self, transaction_id: u32) {
         if let Some(transaction) = self.transactions.get_mut(&transaction_id) {
             match transaction.resolve() {
-                DepositResolve(amount) => {
-                    self.available += amount;        
-                    self.held -= amount;
-                },
-                WithdrawalResolve(amount) => {
+                Some(Resolve::Deposit { amount }) => {
+                    self.available += amount;
                     self.held -= amount;
                 }
-                _ => ()
+                Some(Resolve::Withdrawal { amount }) => {
+                    self.held -= amount;
+                }
+                _ => (),
             }
         }
     }
-    
+
     fn chargeback(&mut self, transaction_id: u32) {
         if let Some(transaction) = self.transactions.get_mut(&transaction_id) {
             match transaction.chargeback() {
-                DepositChargeBack(_amount) | WithdrawalChargeBack(_amount) => {
+                Some(_) => {
                     self.locked = true;
-                },
-                _ => ()
+                }
+                _ => (),
             }
         }
     }
-    
+
     fn process(&mut self, record: TransactionRecord) {
         match record {
-            TransactionRecord{ transaction_type: Deposit, amount, transaction_id, ..} => {
+            TransactionRecord {
+                transaction_type: Deposit,
+                amount,
+                transaction_id,
+                ..
+            } => {
                 self.deposit((transaction_id, amount.unwrap()));
-            },
-            TransactionRecord{ transaction_type: Withdrawal, amount, transaction_id, ..} => {
+            }
+            TransactionRecord {
+                transaction_type: Withdrawal,
+                amount,
+                transaction_id,
+                ..
+            } => {
                 self.withdraw((transaction_id, amount.unwrap()));
-            },
-            TransactionRecord{ transaction_type: Dispute, transaction_id, ..} => {
-                self.dispute(transaction_id)
-            },
-            TransactionRecord{ transaction_type: Resolve, transaction_id, ..} => {
-                self.resolve(transaction_id)
-            },
-            TransactionRecord{ transaction_type: Chargeback, transaction_id, ..} => {
-                self.chargeback(transaction_id)
-            },
+            }
+            TransactionRecord {
+                transaction_type: Dispute,
+                transaction_id,
+                ..
+            } => self.dispute(transaction_id),
+            TransactionRecord {
+                transaction_type: Resolve,
+                transaction_id,
+                ..
+            } => self.resolve(transaction_id),
+            TransactionRecord {
+                transaction_type: Chargeback,
+                transaction_id,
+                ..
+            } => self.chargeback(transaction_id),
         }
     }
 }
@@ -135,89 +153,86 @@ enum RecordedTransaction {
 enum Transaction {
     // transaction id, amount
     Deposit(u32, Decimal),
-    Withdrawal(u32, Decimal)
+    Withdrawal(u32, Decimal),
 }
 
-enum MaybeDispute {
-    DepositDispute(Decimal),
-    WithdrawalDispute(Decimal),
-    NotDispute
+enum Dispute {
+    Deposit { amount: Decimal },
+    Withdrawal { amount: Decimal },
 }
 
-enum MaybeResolve {
-    DepositResolve(Decimal),
-    WithdrawalResolve(Decimal),
-    NotResolve
+enum Resolve {
+    Deposit { amount: Decimal },
+    Withdrawal { amount: Decimal },
 }
 
-enum MaybeChargeBack {
-    DepositChargeBack(Decimal),
-    WithdrawalChargeBack(Decimal),
-    NotChargeBack
+enum ChargeBack {
+    //TODO: do something with the amount ?
+    Deposit { amount: Decimal },
+    Withdrawal { amount: Decimal },
 }
 
 impl RecordedTransaction {
-    fn dispute(&mut self) -> MaybeDispute {
+    fn dispute(&mut self) -> Option<Dispute> {
         match *self {
             Validated(Transaction::Deposit(transaction_id, amount)) => {
                 *self = Disputed(Transaction::Deposit(transaction_id, amount));
-                DepositDispute(amount)
-            },
+                Some(Dispute::Deposit { amount })
+            }
             Validated(Transaction::Withdrawal(transaction_id, amount)) => {
                 *self = Disputed(Transaction::Withdrawal(transaction_id, amount));
-                WithdrawalDispute(amount)
-            },
-            Disputed(_) => NotDispute,
+                Some(Dispute::Withdrawal { amount })
+            }
+            Disputed(_) => None,
             // can you dispute a resolved transaction ? I'm going to say no
-            Resolved(_) => NotDispute,
+            Resolved(_) => None,
             // can you dispute a chargeback transaction ? I'm going to say no
-            ChargedBack(_) => NotDispute,
+            ChargedBack(_) => None,
             // disputed a rejected transaction should not do anything
-            Rejected(_) => NotDispute,
+            Rejected(_) => None,
         }
     }
-    
-    fn resolve(&mut self) -> MaybeResolve {
+
+    fn resolve(&mut self) -> Option<Resolve> {
         match *self {
-            Validated(_) => NotResolve,
+            Validated(_) => None,
             Disputed(Transaction::Deposit(transaction_id, amount)) => {
                 *self = Resolved(Transaction::Deposit(transaction_id, amount));
-                DepositResolve(amount)
-            },
+                Some(Resolve::Deposit { amount })
+            }
             Disputed(Transaction::Withdrawal(transaction_id, amount)) => {
                 *self = Resolved(Transaction::Withdrawal(transaction_id, amount));
-                WithdrawalResolve(amount)
-            },
+                Some(Resolve::Withdrawal { amount })
+            }
             // can you resolve a resolved transaction ? I'm going to say no
-            Resolved(_) => NotResolve,
+            Resolved(_) => None,
             // can you resolve a chargeback transaction ? I'm going to say no
-            ChargedBack(_) => NotResolve,
+            ChargedBack(_) => None,
             // resolving a rejected transaction should not do anything
-            Rejected(_) => NotResolve,
+            Rejected(_) => None,
         }
     }
-    
-    fn chargeback(&mut self) -> MaybeChargeBack {
+
+    fn chargeback(&mut self) -> Option<ChargeBack> {
         match *self {
-            Validated(_) => NotChargeBack,
+            Validated(_) => None,
             Disputed(Transaction::Deposit(transaction_id, amount)) => {
                 *self = ChargedBack(Transaction::Deposit(transaction_id, amount));
-                DepositChargeBack(amount)
-            },
+                Some(ChargeBack::Deposit { amount })
+            }
             Disputed(Transaction::Withdrawal(transaction_id, amount)) => {
                 *self = ChargedBack(Transaction::Withdrawal(transaction_id, amount));
-                WithdrawalChargeBack(amount)
-            },
+                Some(ChargeBack::Withdrawal { amount })
+            }
             // can you chargeback a resolved transaction ? I'm going to say no
-            Resolved(_) => NotChargeBack,
+            Resolved(_) => None,
             // can you chargeback a chargeback transaction ? I'm going to say no
-            ChargedBack(_) => NotChargeBack,
+            ChargedBack(_) => None,
             // chargeback a rejected transaction should not do anything
-            Rejected(_) => NotChargeBack,
+            Rejected(_) => None,
         }
     }
 }
-
 
 #[derive(Default)]
 struct Bank {
@@ -228,7 +243,8 @@ struct Bank {
 
 impl Bank {
     fn process_transaction(&mut self, record: TransactionRecord) {
-        let account = self.accounts
+        let account = self
+            .accounts
             .entry(record.client_id)
             .or_insert_with(|| Account::default());
         // let next_clock = self.next_clock;
@@ -258,7 +274,6 @@ async fn parse_transactions(input_file: &str) -> Result<Bank> {
     }
     Ok(bank)
 }
-
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -396,7 +411,7 @@ mod tests {
             },
         );
     }
-    
+
     #[tokio::test]
     async fn thief() {
         let parsed = parse_transactions("./data/thief.csv")
@@ -414,8 +429,7 @@ mod tests {
             },
         );
     }
-    
-    
+
     #[tokio::test]
     async fn locked_account_should_be_able_to_deposit() {
         let parsed = parse_transactions("./data/locked_account_deposit.csv")
@@ -433,7 +447,7 @@ mod tests {
             },
         );
     }
-    
+
     #[tokio::test]
     async fn locked_account_cant_withdraw() {
         let parsed = parse_transactions("./data/locked_account_withdrawal.csv")
